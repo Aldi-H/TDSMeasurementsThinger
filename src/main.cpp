@@ -16,6 +16,9 @@
 #include <SPI.h>
 #include "RTClib.h"
 
+//* LCD I2C Library
+#include <LiquidCrystal_I2C.h>
+
 //! Variable and PIN Initialization  Goes Here!
 //* TDS PIN
 #define TDS_PIN 34
@@ -47,6 +50,9 @@ DallasTemperature DS18B20_Sensor(&oneWire);
 //* RTC Instance
 RTC_DS1307 rtc_DS1307;
 
+//* LCD I2C Instance
+LiquidCrystal_I2C lcd_I2C(0x27, 20, 4);
+
 //* Global Variable TDS and Temperature
 //* Initial Value for TDS and Temperature
 float tdsValue = 0;
@@ -72,6 +78,10 @@ unsigned int flowMilliLitres2 = 0;
 unsigned long totalMilliLitres2 = 0;
 unsigned long flowMeterOldTime = 0;
 
+//* LCD Variable
+unsigned long backlightOnTime = 0;
+const unsigned long backlightOnDuration = 3000;
+
 //! Function Declaration Goes Here!
 //* Function declaration for readTDS
 void readTDS();
@@ -90,10 +100,19 @@ void setup()
 
   thing.add_wifi(ssid, password);
 
+  //
+  lcd_I2C.init();
+  lcd_I2C.backlight();
+
+  lcd_I2C.clear();
+
   //* Check RTC
   if (!rtc_DS1307.begin())
   {
     Serial.println("Couldn't find RTC");
+    lcd_I2C.clear();
+    lcd_I2C.setCursor(0, 1);
+    lcd_I2C.print("Couldn't find RTC");
     while (1)
       ;
   }
@@ -150,6 +169,23 @@ void loop()
     {
       thing.call_endpoint("endpoint_speedtest", thing["data"]);
       Serial.println("Send to thinger");
+
+      lcd_I2C.noBacklight();
+      lcd_I2C.clear();
+      lcd_I2C.setCursor(0, 0);
+      lcd_I2C.print("Send to Thinger");
+      lcd_I2C.clear();
+
+      lcd_I2C.setCursor(0, 1);
+      lcd_I2C.print("Temperature: ");
+      lcd_I2C.setCursor(12, 1);
+      lcd_I2C.print(temperatureValue);
+
+      lcd_I2C.setCursor(0, 2);
+      lcd_I2C.print("TDS Value: ");
+      lcd_I2C.setCursor(10, 2);
+      lcd_I2C.print(tdsValue);
+
       isSendToEndpoint = true;
     }
   }
