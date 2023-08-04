@@ -19,6 +19,9 @@
 //* LCD I2C Library
 #include <LiquidCrystal_I2C.h>
 
+//* EEPROM Library
+#include <EEPROM.h>
+
 //! Variable and PIN Initialization  Goes Here!
 //* TDS PIN
 #define TDS_PIN 34
@@ -34,9 +37,14 @@ ThingerESP32 thing(USERNAME, DEVICE_ID, DEVICE_CREDENTIAL);
 #define FLOW_PIN1 35
 #define FLOW_PIN2 32
 
+//* EEPROM Variable
+#define EEPROM_SIZE 16
+
 //* WiFi Initialization
-const char *ssid = "Kuro";
-const char *password = "kuro_1905";
+// const char *ssid = "Kuro";
+// const char *password = "kuro_1905";
+const char *ssid = "HUAWEI-V945";
+const char *password = "Ah6Du2JN";
 
 //! Variable Instance Goes Here!
 
@@ -96,6 +104,10 @@ void IRAM_ATTR IRAMFlow2();
 //! Main Program Goes Here!
 void setup()
 {
+
+  //* EEPROM Begin
+  EEPROM.begin(EEPROM_SIZE);
+
   Serial.begin(115200);
 
   thing.add_wifi(ssid, password);
@@ -193,7 +205,6 @@ void loop()
   {
     isSendToEndpoint = false;
   }
-  // readTDS();
 }
 //! MAIN PROGRAM END HERE!
 
