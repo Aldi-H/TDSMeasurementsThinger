@@ -40,6 +40,9 @@ ThingerESP32 thing(USERNAME, DEVICE_ID, DEVICE_CREDENTIAL);
 //* EEPROM Variable
 #define EEPROM_SIZE 16
 
+//* Median Variable
+#define SCOUNT 30
+
 //* WiFi Initialization
 // const char *ssid = "Kuro";
 // const char *password = "kuro_1905";
@@ -47,6 +50,12 @@ const char *ssid = "HUAWEI-V945";
 const char *password = "Ah6Du2JN";
 
 //! Variable Instance Goes Here!
+//* TimePoint and paralel time
+long timePointLED = 1000; // Blink LED every 1s
+unsigned long prevTimeLED = millis();
+
+//* LED BUILTIN State
+int LED_Builtin_State = LOW;
 
 //* TDS Library Insatance
 GravityTDS gravityTds;
@@ -90,7 +99,19 @@ unsigned long flowMeterOldTime = 0;
 unsigned long backlightOnTime = 0;
 const unsigned long backlightOnDuration = 3000;
 
+//* Median Instance
+float MedianBuffer[SCOUNT];
+int MedianBufferIndex = 0;
+int copyIndex = 0;
+float TDSMedian = 0;
+
 //! Function Declaration Goes Here!
+//* Function declaration for getMedianNum
+float getMedianNum(float bArray[], int iFilterLen);
+
+//* Function declaration for readTDS_Median
+void readTDS_Median();
+
 //* Function declaration for readTDS
 void readTDS();
 
@@ -144,7 +165,7 @@ void setup()
     float tdsVal;
     float tempVal;
 
-    out["ppm"] = tdsValue;
+    out["ppm"] = TDSMedian;
     out["temperature"] = temperatureValue;
     out["source"] = "auto";
     out["deviceId"] = "nahida";
@@ -171,6 +192,17 @@ void loop()
 {
   thing.handle();
 
+  unsigned long millisCurrentTime = millis();
+
+  // Blink Internal LED every 1s
+  if (millisCurrentTime - prevTimeLED > timePointLED)
+  {
+    LED_Builtin_State = !LED_Builtin_State;
+    digitalWrite(BUILTIN_LED, LED_Builtin_State);
+
+    prevTimeLED = millisCurrentTime;
+  }
+
   DateTime rtcCurrentTime = rtc_DS1307.now();
   readTDS();
 
@@ -196,7 +228,7 @@ void loop()
       lcd_I2C.setCursor(0, 2);
       lcd_I2C.print("TDS Value: ");
       lcd_I2C.setCursor(10, 2);
-      lcd_I2C.print(tdsValue);
+      lcd_I2C.print(TDSMedian);
 
       isSendToEndpoint = true;
     }
@@ -209,6 +241,59 @@ void loop()
 //! MAIN PROGRAM END HERE!
 
 //! Function Definition Goes Here!
+//* getMedianNum function definition
+float getMedianNum(float bArray[], int iFilterLen)
+{
+  int bTab[iFilterLen];
+
+  for (byte i = 0; i < iFilterLen; i++)
+    bTab[i] = bArray[i];
+  int i, j, bTemp;
+
+  for (j = 0; j < iFilterLen - 1; j++)
+  {
+    for (i = 0; i < iFilterLen - j - 1; i++)
+    {
+      if (bTab[i] > bTab[i + 1])
+      {
+        bTemp = bTab[i];
+        bTab[i] = bTab[i + 1];
+        bTab[i + 1] = bTemp;
+      }
+    }
+  }
+  if ((iFilterLen & 1) > 0)
+  {
+    bTemp = bTab[(iFilterLen - 1) / 2];
+  }
+  else
+  {
+    bTemp = (bTab[iFilterLen / 2] + bTab[iFilterLen / 2 - 1]) / 2;
+  }
+  return bTemp;
+}
+
+//* readTDS_Median function definition
+void readTDS_Median()
+{
+  DS18B20_Sensor.requestTemperatures();
+  temperatureValue = DS18B20_Sensor.getTempCByIndex(0);
+  gravityTds.setTemperature(temperatureValue);
+  gravityTds.update();
+  tdsValue = gravityTds.getTdsValue();
+  // median
+  MedianBuffer[MedianBufferIndex] = tdsValue; //  store into the buffer
+
+  MedianBufferIndex++;
+  if (MedianBufferIndex >= SCOUNT)
+  {
+    TDSMedian = getMedianNum(MedianBuffer, SCOUNT);
+    Serial.printf("Temperature: %.2fC ", temperatureValue);
+    Serial.printf("| TDS Value: %.2fppm \n", TDSMedian);
+    MedianBufferIndex = 0;
+  }
+}
+
 //* readTDS() function definition
 void readTDS()
 {
@@ -220,6 +305,11 @@ void readTDS()
 
   Serial.printf("Temperature: %.2fC ", temperatureValue);
   Serial.printf("| TDS Value: %.2fppm \n", tdsValue);
+
+  lcd_I2C.setCursor(0, 3);
+  lcd_I2C.print("                    ");
+  lcd_I2C.setCursor(10, 3);
+  lcd_I2C.print(tdsValue);
 }
 
 void IRAM_ATTR IRAMFlow1()
