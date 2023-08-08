@@ -30,7 +30,8 @@
 ThingerESP32 thing(USERNAME, DEVICE_ID, DEVICE_CREDENTIAL);
 
 //* SSR PIN
-#define SSR_PIN 26
+#define SSR_PIN1 26
+#define SSR_PIN2 14
 
 //* FLow Meter Pin and Interrupt
 #define sensorInterrupt 0
@@ -86,7 +87,7 @@ int globalCounter = 0;
 volatile int flowMeterCount1;
 volatile int flowMeterCount2;
 //* Flow Meter Rate
-float calibrationFactor = 98;
+float calibrationFactor = 55;
 float flowRate1 = 0.0;
 float flowRate2 = 0.0;
 unsigned int flowMilliLitres1 = 0;
@@ -116,7 +117,9 @@ void readTDS_Median();
 void readTDS();
 
 //* Function declaration for openSelenoidValve
-void openSelenoidValve(int counter, int flowRate);
+void openSelenoidValve(int flowRate);
+
+void setCalibrationFactor(int flowRate);
 
 //* Function declaration for IRAM_ATTR IRAMFlow
 void IRAM_ATTR IRAMFlow1();
@@ -151,8 +154,10 @@ void setup()
   }
 
   //* SSR Setup
-  pinMode(SSR_PIN, OUTPUT);
-  digitalWrite(SSR_PIN, HIGH);
+  pinMode(SSR_PIN1, OUTPUT);
+  digitalWrite(SSR_PIN1, HIGH);
+  pinMode(SSR_PIN2, OUTPUT);
+  digitalWrite(SSR_PIN2, HIGH);
 
   //* Flow Meter Setup
   pinMode(FLOW_PIN1, INPUT);
@@ -176,7 +181,8 @@ void setup()
     int flow = in;
     if (globalCounter != 0)
     {
-      openSelenoidValve(globalCounter, flow);
+      Serial.println(flow);
+      openSelenoidValve(flow);
     }
   };
   globalCounter++;
@@ -205,6 +211,16 @@ void loop()
 
   DateTime rtcCurrentTime = rtc_DS1307.now();
   readTDS();
+
+  MedianBuffer[MedianBufferIndex] = tdsValue; //  store into the buffer
+  MedianBufferIndex++;
+  if (MedianBufferIndex >= SCOUNT)
+  {
+    TDSMedian = getMedianNum(MedianBuffer, SCOUNT);
+    Serial.printf("Temperature: %.2fC ", temperatureValue);
+    Serial.printf("| TDS Median Value: %.2fppm \n", TDSMedian);
+    MedianBufferIndex = 0;
+  }
 
   // You can remove isSendToEndpoint condition if not double sent like MQTT
   if (rtcCurrentTime.second() == 0 && !isSendToEndpoint)
@@ -322,12 +338,50 @@ void IRAM_ATTR IRAMFlow2()
   flowMeterCount2++;
 }
 
-//* openSelenoidValve function definition
-void openSelenoidValve(int counter, int flowRate)
+void setCalibrationFactor(int flowRate)
 {
-  digitalWrite(SSR_PIN, LOW);
+  if (flowRate == 20)
+  {
+    calibrationFactor = 50;
+  }
+  else if (flowRate = 50)
+  {
+    calibrationFactor = 55;
+  }
+  else
+  {
+    calibrationFactor = 60;
+  }
+}
 
-  while (totalMilliLitres1 <= flowRate || totalMilliLitres2 <= flowRate)
+//* openSelenoidValve function definition
+void openSelenoidValve(int flowRate)
+{
+  float calFactor;
+
+  if (flowRate == 20)
+  {
+    calFactor = 50;
+  }
+  else if (flowRate == 50)
+  {
+    calFactor = 55;
+  }
+  else
+  {
+    calFactor = 60;
+  }
+
+  Serial.println(calFactor);
+
+  digitalWrite(SSR_PIN1, LOW);
+  digitalWrite(SSR_PIN2, LOW);
+
+  //* uncomment this later
+  attachInterrupt(FLOW_PIN1, IRAMFlow1, FALLING);
+  attachInterrupt(FLOW_PIN2, IRAMFlow2, FALLING);
+
+  while (totalMilliLitres2 <= flowRate && totalMilliLitres1 <= flowRate)
   {
     // only process counters once per second
     if ((millis() - flowMeterOldTime) > 1000)
@@ -336,6 +390,19 @@ void openSelenoidValve(int counter, int flowRate)
       detachInterrupt(FLOW_PIN1);
       detachInterrupt(FLOW_PIN2);
 
+      // //* Check valve one by one
+      if (totalMilliLitres1 >= flowRate)
+      {
+        digitalWrite(SSR_PIN1, HIGH);
+        detachInterrupt(FLOW_PIN1);
+      }
+
+      if (totalMilliLitres2 >= flowRate)
+      {
+        digitalWrite(SSR_PIN2, HIGH);
+        detachInterrupt(FLOW_PIN2);
+      }
+
       /*
        * Because this loop may not complete in exactly 1 second intervals
        * we calculate the number of milliseconds that have passed since the last execution
@@ -343,8 +410,8 @@ void openSelenoidValve(int counter, int flowRate)
        * We also apply the calibrationFactor to scale the output based on the number of pulses per second per units of measure
        * (litres/minute in this case) coming from the sensor.
        */
-      flowRate1 = ((1000.0 / (millis() - flowMeterOldTime)) * flowMeterCount1) / calibrationFactor;
-      flowRate2 = ((1000.0 / (millis() - flowMeterOldTime)) * flowMeterCount2) / calibrationFactor;
+      flowRate1 = ((1000.0 / (millis() - flowMeterOldTime)) * flowMeterCount1) / calFactor;
+      flowRate2 = ((1000.0 / (millis() - flowMeterOldTime)) * flowMeterCount2) / calFactor;
 
       /*
        * Note the time this processing pass was executed.
@@ -364,7 +431,6 @@ void openSelenoidValve(int counter, int flowRate)
       totalMilliLitres1 += flowMilliLitres1;
       totalMilliLitres2 += flowMilliLitres2;
 
-      // Print the flow rate for this second in litres / minute
       Serial.print("Flow rate1: ");
       Serial.print(flowMilliLitres1, DEC); // Print the integer part of the variable
       Serial.print("mL/Second");
@@ -376,17 +442,28 @@ void openSelenoidValve(int counter, int flowRate)
       Serial.println("mL");
       Serial.print("\t");
 
-      Serial.print("||");
+      lcd_I2C.clear();
+      lcd_I2C.setCursor(0, 1);
+      lcd_I2C.print("Total ml A: ");
+      lcd_I2C.setCursor(12, 1);
+      lcd_I2C.print(totalMilliLitres1, DEC);
 
+      // Print the flow rate for this second in litres / minute
       Serial.print("Flow rate2: ");
       Serial.print(flowMilliLitres2, DEC); // Print the integer part of the variable
       Serial.print("mL/Second");
       Serial.print("\t");
 
+      // Print the cumulative total of litres flowed since starting
       Serial.print("Output Liquid Quantity2: ");
       Serial.print(totalMilliLitres2, DEC);
       Serial.println("mL");
       Serial.print("\t");
+
+      lcd_I2C.setCursor(0, 2);
+      lcd_I2C.print("Total ml B: ");
+      lcd_I2C.setCursor(12, 2);
+      lcd_I2C.print(totalMilliLitres2, DEC);
 
       // Reset the pulse counter so we can start incrementing again
       flowMeterCount1 = 0;
@@ -398,12 +475,16 @@ void openSelenoidValve(int counter, int flowRate)
     }
   }
 
-  digitalWrite(SSR_PIN, HIGH);
+  digitalWrite(SSR_PIN1, HIGH);
+  detachInterrupt(FLOW_PIN1);
+
+  digitalWrite(SSR_PIN2, HIGH);
+  detachInterrupt(FLOW_PIN2);
+
   totalMilliLitres1 = 0;
   totalMilliLitres2 = 0;
 
-  detachInterrupt(FLOW_PIN1);
-  detachInterrupt(FLOW_PIN2);
-  // End with globalCounter increment
+  lcd_I2C.clear();
+
   globalCounter++;
 }
