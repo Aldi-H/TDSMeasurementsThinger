@@ -47,8 +47,10 @@ ThingerESP32 thing(USERNAME, DEVICE_ID, DEVICE_CREDENTIAL);
 //* WiFi Initialization
 // const char *ssid = "Kuro";
 // const char *password = "kuro_1905";
-const char *ssid = "HUAWEI-V945";
-const char *password = "Ah6Du2JN";
+// const char *ssid = "CMCC-Xsaben";
+// const char *password = "12345678";
+const char *ssid = "Huawei-23GH";
+const char *password = "7tffh1r3";
 
 //! Variable Instance Goes Here!
 //* TimePoint and paralel time
@@ -173,7 +175,7 @@ void setup()
     out["ppm"] = TDSMedian;
     out["temperature"] = temperatureValue;
     out["source"] = "auto";
-    out["deviceId"] = "nahida";
+    out["deviceId"] = "yuanth";
   };
 
   thing["valve"] << [](pson &in)
